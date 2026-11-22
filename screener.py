@@ -10,7 +10,9 @@ from typing import Dict, List, Optional
 import pandas as pd
 
 from config import CHARTS_DIR, DB_PATH, TOP_N, TRACKER_XLSX_PATH
+from dashboard import DASHBOARD_HTML_PATH, generate_dashboard_html
 from database import (
+    delete_recommendations_on_or_after,
     get_all_recommendations,
     get_ticker_metadata,
     get_trading_dates,
@@ -113,6 +115,10 @@ def run_single_date_scan(
         effective_date = pd.Series(all_latest).mode().iloc[0] if all_latest else ""
     else:
         effective_date = scan_date
+
+    # Ensure idempotency when re-running on the same scan_date
+    if effective_date:
+        delete_recommendations_on_or_after(effective_date, db_path=DB_PATH)
 
     # Step 1: Update existing ACTIVE recommendations up to effective_date
     _, active_longs, active_shorts = update_active_recommendations(
@@ -288,9 +294,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         logger.warning("No valid trading date found for screening.")
         return 0
 
-    # 5. Export dated CSV snapshots & Master Live-Updating Excel Tracker
+    # 5. Export dated CSV snapshots, Master Live-Updating Excel Tracker, and Web UI Dashboard
     long_csv, short_csv = save_daily_csv_reports(top_longs, top_shorts, effective_date)
     xlsx_path = export_excel_tracker(top_longs, top_shorts, effective_date, xlsx_path=TRACKER_XLSX_PATH, db_path=DB_PATH)
+    dash_path = generate_dashboard_html(indicator_frames=indicator_frames, db_path=DB_PATH, output_path=DASHBOARD_HTML_PATH)
 
     all_tracked = get_all_recommendations(db_path=DB_PATH)
     active_count = sum(1 for r in all_tracked if r["status"] == "ACTIVE")
@@ -300,6 +307,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     print(f" [SUMMARY] Scan Date: {effective_date}")
     print(f"   • Today's Qualified Picks : {len(top_longs)} Longs | {len(top_shorts)} Shorts")
     print(f"   • Tracker Database State  : {len(all_tracked)} Total Tracked ({active_count} ACTIVE | {exited_count} EXITED & FROZEN)")
+    print(f"   • Professional Web UI     : {dash_path}")
     print(f"   • Excel Tracker Workbook  : {xlsx_path}")
     print(f"   • Interactive HTML Charts : {CHARTS_DIR}")
     print(f"   • Daily CSV Snapshots     : {long_csv.name}, {short_csv.name}")

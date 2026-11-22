@@ -439,12 +439,19 @@ def get_active_recommendations(
     query = "SELECT * FROM recommendations WHERE status = 'ACTIVE'"
     params: List[Any] = []
     if before_or_on_date:
-        query += " AND rec_date <= ?"
+        query += " AND rec_date < ?"
         params.append(before_or_on_date)
     query += " ORDER BY rec_date ASC, turtle_score DESC;"
     with get_connection(db_path) as conn:
         cur = conn.execute(query, params)
         return [dict(row) for row in cur.fetchall()]
+
+
+def delete_recommendations_on_or_after(start_date: str, db_path: Path = DB_PATH) -> int:
+    """Remove recommendations on or after `start_date` so same-day re-runs and backfills are idempotent."""
+    with get_connection(db_path) as conn:
+        cur = conn.execute("DELETE FROM recommendations WHERE rec_date >= ?;", (start_date,))
+        return int(cur.rowcount or 0)
 
 
 def get_all_recommendations(db_path: Path = DB_PATH) -> List[Dict[str, Any]]:
