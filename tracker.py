@@ -18,6 +18,7 @@ from config import CHARTS_DIR, DAILY_CSV_DIR, DB_PATH, TRACKER_XLSX_PATH
 from database import (
     get_active_recommendations,
     get_all_recommendations,
+    get_date_wise_closing_prices,
     upsert_recommendations,
 )
 
@@ -258,10 +259,118 @@ def export_excel_tracker(
     )
 
     # =========================================================================
-    # TAB 1: Tracker_Log
+    # TAB 1: Recommendations (Streamlined Date-Wise Closing Price Sheet)
+    # Headings: Security Name | Date-Wise Closing Price | Turtle Score | Recommended Price | Donchian Exit | % Return Since Recommendation
     # =========================================================================
-    ws_log = wb.active
-    ws_log.title = "Tracker_Log"
+    ws_rec = wb.active
+    ws_rec.title = "Recommendations"
+    ws_rec.views.sheetView[0].showGridLines = True
+
+    date_cols, rec_date_closes = get_date_wise_closing_prices(all_recs, db_path=db_path)
+    if not date_cols:
+        date_cols = [scan_date] if scan_date else ["Latest"]
+
+    num_dates = len(date_cols)
+    # Row 1: Top-level headings (with Date-Wise Closing Price merged across date columns)
+    ws_rec.cell(row=1, column=1, value="Security Name")
+    ws_rec.merge_cells(start_row=1, start_column=1, end_row=2, end_column=1)
+
+    ws_rec.cell(row=1, column=2, value="Date-Wise Closing Price")
+    if num_dates > 1:
+        ws_rec.merge_cells(start_row=1, start_column=2, end_row=1, end_column=1 + num_dates)
+
+    for d_idx, dt_str in enumerate(date_cols):
+        ws_rec.cell(row=2, column=2 + d_idx, value=dt_str)
+
+    tail_headings = [
+        "Turtle Score",
+        "Recommended Price",
+        "Donchian Exit",
+        "% Return Since Recommendation",
+    ]
+    tail_start_col = 2 + num_dates
+    for t_idx, h_title in enumerate(tail_headings):
+        col_c = tail_start_col + t_idx
+        ws_rec.cell(row=1, column=col_c, value=h_title)
+        ws_rec.merge_cells(start_row=1, start_column=col_c, end_row=2, end_column=col_c)
+
+    total_rec_cols = tail_start_col + len(tail_headings) - 1
+    for r_hdr in (1, 2):
+        for c_hdr in range(1, total_rec_cols + 1):
+            c_cell = ws_rec.cell(row=r_hdr, column=c_hdr)
+            c_cell.fill = header_fill
+            c_cell.font = header_font
+            c_cell.alignment = Alignment(horizontal="center", vertical="center")
+            c_cell.border = thin_border
+
+    ws_rec.freeze_panes = "B3"
+
+    for row_idx, rec in enumerate(all_recs, start=3):
+        rec_id = str(rec["rec_id"])
+        tkr = str(rec["ticker"])
+        comp = str(rec.get("company_name") or tkr)
+        direction = str(rec.get("direction", "LONG"))
+        sec_display = f"{tkr} - {comp} ({direction})" if comp != tkr else f"{tkr} ({direction})"
+
+        c_sec = ws_rec.cell(row=row_idx, column=1, value=sec_display)
+        c_sec.border = thin_border
+        chart_str = str(rec.get("chart_path") or "")
+        if chart_str:
+            try:
+                rel_link = os.path.relpath(chart_str, str(xlsx_path.parent)).replace("\\", "/")
+            except ValueError:
+                rel_link = Path(chart_str).resolve().as_uri()
+            c_sec.hyperlink = rel_link
+            c_sec.font = link_font
+        else:
+            c_sec.font = bold_font
+
+        closes_map = rec_date_closes.get(rec_id, {})
+        for d_idx, dt_str in enumerate(date_cols):
+            c_dt = ws_rec.cell(row=row_idx, column=2 + d_idx)
+            c_dt.border = thin_border
+            c_dt.font = regular_font
+            c_dt.alignment = Alignment(horizontal="right")
+            if dt_str in closes_map:
+                c_dt.value = float(closes_map[dt_str])
+                c_dt.number_format = "0.00"
+            else:
+                c_dt.value = ""
+
+        # Turtle Score
+        c_score = ws_rec.cell(row=row_idx, column=tail_start_col, value=float(rec.get("turtle_score", 0.0)))
+        c_score.font = bold_font
+        c_score.border = thin_border
+        c_score.number_format = "0.00"
+        c_score.alignment = Alignment(horizontal="right")
+
+        # Recommended Price
+        c_rec_p = ws_rec.cell(row=row_idx, column=tail_start_col + 1, value=float(rec.get("rec_price", 0.0)))
+        c_rec_p.font = regular_font
+        c_rec_p.border = thin_border
+        c_rec_p.number_format = "0.00"
+        c_rec_p.alignment = Alignment(horizontal="right")
+
+        # Donchian Exit
+        c_exit = ws_rec.cell(row=row_idx, column=tail_start_col + 2, value=float(rec.get("current_exit_level", 0.0)))
+        c_exit.font = regular_font
+        c_exit.border = thin_border
+        c_exit.number_format = "0.00"
+        c_exit.alignment = Alignment(horizontal="right")
+
+        # % Return Since Recommendation
+        ret_val = float(rec.get("return_pct", 0.0))
+        c_ret = ws_rec.cell(row=row_idx, column=tail_start_col + 3, value=ret_val)
+        c_ret.border = thin_border
+        c_ret.number_format = "+0.00;-0.00;0.00"
+        c_ret.alignment = Alignment(horizontal="right")
+        c_ret.fill = pos_fill if ret_val > 0 else (neg_fill if ret_val < 0 else exited_fill)
+        c_ret.font = pos_font if ret_val > 0 else (neg_font if ret_val < 0 else regular_font)
+
+    # =========================================================================
+    # TAB 2: Tracker_Log
+    # =========================================================================
+    ws_log = wb.create_sheet(title="Tracker_Log")
     ws_log.views.sheetView[0].showGridLines = True
 
     log_columns = [
@@ -493,7 +602,7 @@ def export_excel_tracker(
                     cell.number_format = "0.00"
 
     # Auto-fit column widths across all sheets
-    for ws in (ws_log, ws_latest, ws_perf):
+    for ws in (ws_rec, ws_log, ws_latest, ws_perf):
         for col in ws.columns:
             max_len = 0
             col_letter = get_column_letter(col[0].column)
@@ -501,7 +610,7 @@ def export_excel_tracker(
                 val_str = str(cell.value or "")
                 if len(val_str) > max_len:
                     max_len = len(val_str)
-            ws.column_dimensions[col_letter].width = min(max(max_len + 3, 11), 34)
+            ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 38)
 
     xlsx_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(str(xlsx_path))

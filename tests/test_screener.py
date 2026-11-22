@@ -203,7 +203,14 @@ def test_end_to_end_ranking_lifecycle_freeze_excel_and_chart(tmp_path: Path) -> 
     assert xlsx_file.exists()
 
     wb = load_workbook(str(xlsx_file))
-    assert set(wb.sheetnames) == {"Tracker_Log", "Latest_Top10", "Grade_Performance"}
+    assert set(wb.sheetnames) == {"Recommendations", "Tracker_Log", "Latest_Top10", "Grade_Performance"}
+    ws_rec = wb["Recommendations"]
+    assert ws_rec.cell(row=1, column=1).value == "Security Name"
+    assert ws_rec.cell(row=1, column=2).value == "Date-Wise Closing Price"
+    sec_cell = ws_rec.cell(row=3, column=1)
+    assert sec_cell.hyperlink is not None
+    assert sec_cell.hyperlink.target.endswith(".html")
+
     ws_log = wb["Tracker_Log"]
     ticker_cell = ws_log.cell(row=2, column=2)
     assert ticker_cell.hyperlink is not None

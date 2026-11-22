@@ -21,6 +21,7 @@ from config import (
 from database import (
     get_all_recommendations,
     get_connection,
+    get_date_wise_closing_prices,
     get_ticker_metadata,
 )
 from ranker import compute_candidate_pillars
@@ -131,9 +132,11 @@ def build_dashboard_payload(
     """Assemble complete JSON payload for the web dashboard UI."""
     all_recs = get_all_recommendations(db_path=db_path)
     ticker_meta = get_ticker_metadata(db_path=db_path)
+    date_wise_dates, rec_date_closes = get_date_wise_closing_prices(all_recs, db_path=db_path)
 
-    # Enrich each recommendation with its 5-pillar sub-scores and relative chart link
+    # Enrich each recommendation with its 5-pillar sub-scores, date-wise closes, and relative chart link
     for rec in all_recs:
+        rec["date_wise_closes"] = rec_date_closes.get(str(rec["rec_id"]), {})
         # Provide defaults for pillar computation
         rec_for_pillars = {
             "breakout_n": rec.get("breakout_n", 0.5),
@@ -207,6 +210,7 @@ def build_dashboard_payload(
             else None,
         },
         "pillar_weights": PILLAR_WEIGHTS,
+        "date_wise_dates": date_wise_dates,
         "recommendations": all_recs,
         "universe_snapshot": universe_snapshot,
     }
@@ -1009,6 +1013,10 @@ _DASHBOARD_TEMPLATE = r"""<!DOCTYPE html>
         <span>🎯</span> Daily Top 10 Breakouts
         <span class="tab-count" id="badgeDailyCount">0</span>
       </button>
+      <button class="tab-btn" onclick="switchTab('tab-rec-sheet', this)">
+        <span>📑</span> Recommendations Spreadsheet
+        <span class="tab-count" id="badgeRecSheetCount">0</span>
+      </button>
       <button class="tab-btn" onclick="switchTab('tab-tracker', this)">
         <span>📋</span> Master Recommendation Tracker
         <span class="tab-count" id="badgeTrackerCount">0</span>
@@ -1064,6 +1072,34 @@ _DASHBOARD_TEMPLATE = r"""<!DOCTYPE html>
         </div>
         <div class="table-wrap">
           <table id="tableDailyShorts">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 1B: RECOMMENDATIONS SPREADSHEET (STREAMLINED VIEW) -->
+    <section id="tab-rec-sheet" class="tab-pane">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>📑 Recommendations Spreadsheet</span>
+            <span style="color:var(--text-muted); font-size:12px; font-weight:500;">
+              Security Name • Date-Wise Closing Price • Turtle Score • Recommended Price • Donchian Exit • % Return Since Recommendation
+            </span>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <button class="btn" onclick="exportRecommendationsCSV()" title="Export this exact table to CSV">
+              <span>⬇</span> Save Recommendations (.csv)
+            </button>
+            <a class="btn btn-success" href="turtle_recommendations_tracker.xlsx" download title="Download Master Excel Workbook with Recommendations tab">
+              <span>⬇</span> Save Excel Spreadsheet (.xlsx)
+            </a>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table id="tableRecSheet">
             <thead></thead>
             <tbody></tbody>
           </table>
@@ -1463,6 +1499,7 @@ _DASHBOARD_TEMPLATE = r"""<!DOCTYPE html>
 
       renderKPIs();
       renderDailyTables();
+      renderRecSpreadsheetTab();
       renderTrackerTable();
       renderTerminalList();
       renderAnalytics();
@@ -1509,7 +1546,106 @@ _DASHBOARD_TEMPLATE = r"""<!DOCTYPE html>
       `;
 
       document.getElementById("badgeTrackerCount").textContent = k.total_tracked || 0;
+      document.getElementById("badgeRecSheetCount").textContent = k.total_tracked || 0;
       document.getElementById("badgeUniverseCount").textContent = (DATA.universe_snapshot || []).length;
+    }
+
+    function renderRecSpreadsheetTab() {
+      const recs = DATA.recommendations || [];
+      const dates = (DATA.date_wise_dates && DATA.date_wise_dates.length)
+        ? DATA.date_wise_dates
+        : (DATA.latest_scan_date ? [DATA.latest_scan_date] : []);
+
+      const dateCount = Math.max(1, dates.length);
+      const thead = document.querySelector("#tableRecSheet thead");
+      const tbody = document.querySelector("#tableRecSheet tbody");
+
+      const dateSubHeaders = dates.map(d => `<th style="text-align:right; border-top:1px solid var(--border);">${d}</th>`).join("");
+      thead.innerHTML = `
+        <tr>
+          <th rowspan="2" style="vertical-align:middle;">Security Name</th>
+          <th colspan="${dateCount}" style="text-align:center; border-bottom:1px solid var(--border); color:#60a5fa;">Date-Wise Closing Price</th>
+          <th rowspan="2" style="vertical-align:middle; text-align:right;">Turtle Score</th>
+          <th rowspan="2" style="vertical-align:middle; text-align:right;">Recommended Price</th>
+          <th rowspan="2" style="vertical-align:middle; text-align:right;">Donchian Exit</th>
+          <th rowspan="2" style="vertical-align:middle; text-align:right;">% Return Since Recommendation</th>
+        </tr>
+        <tr>
+          ${dateSubHeaders}
+        </tr>
+      `;
+
+      if (!recs.length) {
+        tbody.innerHTML = `<tr><td colspan="${5 + dateCount}" style="text-align:center; padding:22px; color:var(--text-muted);">No recommendations recorded yet.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = recs.map(r => {
+        const comp = r.company_name && r.company_name !== r.ticker ? `${r.ticker} - ${r.company_name} (${r.direction})` : `${r.ticker} (${r.direction})`;
+        const closesMap = r.date_wise_closes || {};
+        const dateCells = dates.map(d => {
+          const val = closesMap[d];
+          return `<td class="mono" style="text-align:right;">${val !== undefined ? '$' + fmtNum(val) : '—'}</td>`;
+        }).join("");
+
+        return `
+          <tr>
+            <td>
+              <a class="ticker-link" onclick="openChartModal('${r.rec_id}')" title="Click to open daily chart for ${comp}">
+                📈 ${comp}
+              </a>
+            </td>
+            ${dateCells}
+            <td class="mono" style="text-align:right; font-weight:800;">${fmtNum(r.turtle_score)}</td>
+            <td class="mono" style="text-align:right;">$${fmtNum(r.rec_price)}</td>
+            <td class="mono" style="text-align:right; color:#fbbf24;">$${fmtNum(r.current_exit_level)}</td>
+            <td style="text-align:right;">${fmtPctHTML(r.return_pct)}</td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    function exportRecommendationsCSV() {
+      const recs = DATA.recommendations || [];
+      const dates = (DATA.date_wise_dates && DATA.date_wise_dates.length)
+        ? DATA.date_wise_dates
+        : (DATA.latest_scan_date ? [DATA.latest_scan_date] : []);
+
+      const headerRow = [
+        "Security Name",
+        ...dates.map(d => `Date-Wise Closing Price (${d})`),
+        "Turtle Score",
+        "Recommended Price",
+        "Donchian Exit",
+        "% Return Since Recommendation"
+      ];
+
+      const csvRows = [headerRow.map(h => `"${h}"`).join(",")];
+      recs.forEach(r => {
+        const comp = r.company_name && r.company_name !== r.ticker ? `${r.ticker} - ${r.company_name} (${r.direction})` : `${r.ticker} (${r.direction})`;
+        const closesMap = r.date_wise_closes || {};
+        const dateVals = dates.map(d => closesMap[d] !== undefined ? Number(closesMap[d]).toFixed(2) : "");
+        const row = [
+          `"${comp.replace(/"/g, '""')}"`,
+          ...dateVals,
+          Number(r.turtle_score || 0).toFixed(2),
+          Number(r.rec_price || 0).toFixed(2),
+          Number(r.current_exit_level || 0).toFixed(2),
+          Number(r.return_pct || 0).toFixed(2)
+        ];
+        csvRows.push(row.join(","));
+      });
+
+      const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `turtle_recommendations_${DATA.latest_scan_date || 'export'}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast("Saved Recommendations spreadsheet CSV.");
     }
 
     function renderDailyTables() {

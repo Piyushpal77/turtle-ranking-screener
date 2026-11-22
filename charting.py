@@ -30,6 +30,7 @@ def generate_recommendation_chart(
 ) -> Path:
     """
     Generate or update the standalone interactive HTML daily chart for a recommendation.
+    - Renders a dedicated non-overlapping HTML summary header above the chart canvas.
     - Shows 90 trading days prior to `rec_date` up to `latest_date` (or `exit_date` if EXITED).
     - Plots candlesticks, Donchian Breakout channel, Turtle Exit trail, Hull MA (20), SMA (200).
     - Plots a vertical dotted line on `rec_date` and a horizontal line at `rec_price`.
@@ -48,7 +49,6 @@ def generate_recommendation_chart(
     if rec_date in dates:
         rec_idx = dates.index(rec_date)
     else:
-        # Closest available date on or after rec_date
         after = [i for i, d in enumerate(dates) if d >= rec_date]
         rec_idx = after[0] if after else max(0, len(dates) - 1)
         rec_date = dates[rec_idx]
@@ -70,7 +70,9 @@ def generate_recommendation_chart(
     grade = str(rec["grade"])
     score = float(rec["turtle_score"])
     rec_price = float(rec["rec_price"])
-    latest_price = float(rec.get("exit_price") if status == "EXITED" and rec.get("exit_price") else rec["latest_price"])
+    latest_price = float(
+        rec.get("exit_price") if status == "EXITED" and rec.get("exit_price") else rec["latest_price"]
+    )
     ret_pct = float(rec.get("return_pct", 0.0))
     days_held = int(rec.get("days_held", 0))
     cur_exit_lvl = float(rec.get("current_exit_level", rec.get("initial_exit_level", 0.0)))
@@ -79,8 +81,8 @@ def generate_recommendation_chart(
         rows=4,
         cols=1,
         shared_xaxes=True,
-        vertical_spacing=0.025,
-        row_heights=[0.55, 0.15, 0.15, 0.15],
+        vertical_spacing=0.032,
+        row_heights=[0.54, 0.15, 0.15, 0.16],
         subplot_titles=(
             f"{ticker} ({company}) — Daily Price, Donchian Channels, Hull MA (20) & SMA (200)",
             "Volume & 20-Day SMA (RVOL Baseline)",
@@ -112,10 +114,10 @@ def generate_recommendation_chart(
 
     if direction == "LONG":
         exit_col = "low_20" if is_sys2 else "low_10"
-        exit_label = "20d Turtle Exit Low" if is_sys2 else "10d Turtle Exit Low"
+        exit_label = "20d Donchian Exit Low" if is_sys2 else "10d Donchian Exit Low"
     else:
         exit_col = "high_20" if is_sys2 else "high_10"
-        exit_label = "20d Turtle Exit High" if is_sys2 else "10d Turtle Exit High"
+        exit_label = "20d Donchian Exit High" if is_sys2 else "10d Donchian Exit High"
 
     fig.add_trace(
         go.Scatter(
@@ -182,8 +184,8 @@ def generate_recommendation_chart(
 
     # 4. Horizontal Recommended Price Line (from rec_date to end_date)
     post_rec_dates = [d for d in x_dates if d >= rec_date]
+    accent_color = "#00E676" if direction == "LONG" else "#FF5252"
     if post_rec_dates:
-        accent_color = "#00E676" if direction == "LONG" else "#FF5252"
         fig.add_trace(
             go.Scatter(
                 x=post_rec_dates,
@@ -196,7 +198,15 @@ def generate_recommendation_chart(
             col=1,
         )
 
-        # Marker on Recommendation Date & Recommended Price
+        # Position label to the left if rec_date is near the right edge of the chart
+        is_near_right_edge = (len(x_dates) - 1 - x_dates.index(rec_date)) < 12
+        text_pos = "middle left" if is_near_right_edge else "middle right"
+        label_text = (
+            f"REC {direction} @ ${rec_price:.2f} ({grade})  "
+            if is_near_right_edge
+            else f"  REC {direction} @ ${rec_price:.2f} ({grade})"
+        )
+
         fig.add_trace(
             go.Scatter(
                 x=[rec_date],
@@ -205,40 +215,44 @@ def generate_recommendation_chart(
                 name="Recommendation Entry",
                 marker=dict(
                     symbol="triangle-up" if direction == "LONG" else "triangle-down",
-                    size=14,
+                    size=13,
                     color=accent_color,
                     line=dict(color="#FFFFFF", width=1.5),
                 ),
-                text=[f"  REC {direction} @ ${rec_price:.2f} ({grade})"],
-                textposition="middle right",
-                textfont=dict(color=accent_color, size=12, family="Arial Black"),
+                text=[label_text],
+                textposition=text_pos,
+                textfont=dict(color=accent_color, size=11.5, family="Arial Black"),
+                cliponaxis=False,
             ),
             row=1,
             col=1,
         )
 
     # 5. Vertical Dotted Line on Recommendation Date across all panels
-    vline_color = "#00E676" if direction == "LONG" else "#FF5252"
     for r_idx in (1, 2, 3, 4):
         fig.add_vline(
             x=rec_date,
             line_width=2.0,
             line_dash="dot",
-            line_color=vline_color,
+            line_color=accent_color,
             row=r_idx,
             col=1,
         )
 
+    # Place Rec Date callout badge inside top of price chart area (never overlapping subplot title)
     fig.add_annotation(
         x=rec_date,
-        y=1.02,
+        y=0.98,
         xref="x",
-        yref="paper",
+        yref="y domain",
+        xanchor="right",
+        yanchor="top",
+        xshift=-6,
         text=f"Rec Date: {rec_date} (${rec_price:.2f})",
         showarrow=False,
-        font=dict(color="#111111", size=11, family="Arial"),
-        bgcolor=vline_color,
-        bordercolor=vline_color,
+        font=dict(color="#0B0E14", size=11, family="Arial"),
+        bgcolor=accent_color,
+        bordercolor=accent_color,
         borderpad=4,
     )
 
@@ -260,16 +274,17 @@ def generate_recommendation_chart(
                 x=[exit_date_str],
                 y=[exit_price_val],
                 mode="markers+text",
-                name=f"Turtle Exit (${exit_price_val:.2f})",
+                name=f"Donchian Exit (${exit_price_val:.2f})",
                 marker=dict(
                     symbol="x",
                     size=12,
                     color="#FFB300",
                     line=dict(color="#FFFFFF", width=1.5),
                 ),
-                text=[f"  EXITED @ ${exit_price_val:.2f} ({ret_pct:+.2f}%)"],
-                textposition="top left",
+                text=[f"EXITED @ ${exit_price_val:.2f} ({ret_pct:+.2f}%)  "],
+                textposition="middle left",
                 textfont=dict(color="#FFB300", size=11, family="Arial Black"),
+                cliponaxis=False,
             ),
             row=1,
             col=1,
@@ -383,41 +398,28 @@ def generate_recommendation_chart(
             col=1,
         )
 
-    status_badge = (
-        f"ACTIVE (Updated through {end_date})"
-        if status == "ACTIVE"
-        else f"EXITED & FROZEN on {exit_date_str}"
-    )
-    ret_color = "#00E676" if ret_pct >= 0 else "#FF5252"
-    title_html = (
-        f"<b>{ticker}</b> ({company}) | <b>{direction} {system}</b> | "
-        f"Grade: <b>{grade}</b> ({score:.1f}/100) | "
-        f"Rec: <b>{rec_date} @ ${rec_price:.2f}</b> → "
-        f"Latest/Exit: <b>${latest_price:.2f}</b> "
-        f"(<span style='color:{ret_color}'><b>{ret_pct:+.2f}%</b></span>, {days_held}d) | "
-        f"Exit Trail: <b>${cur_exit_lvl:.2f}</b> | Status: <b>{status_badge}</b>"
-    )
-
+    # Keep Plotly layout free of title overlap by placing legend cleanly in its own dedicated top band
     fig.update_layout(
-        title=dict(text=title_html, x=0.01, xanchor="left", font=dict(size=14)),
         template="plotly_dark",
         paper_bgcolor="#0E1117",
         plot_bgcolor="#161B22",
-        height=1050,
-        margin=dict(l=55, r=40, t=90, b=40),
+        height=980,
+        margin=dict(l=55, r=35, t=75, b=35),
         xaxis_rangeslider_visible=False,
         legend=dict(
             orientation="h",
             yanchor="bottom",
             y=1.03,
-            xanchor="right",
-            x=1.0,
-            font=dict(size=10),
+            xanchor="left",
+            x=0.0,
+            font=dict(size=11, color="#C9D1D9"),
+            bgcolor="rgba(22, 27, 34, 0.75)",
+            bordercolor="rgba(255, 255, 255, 0.08)",
+            borderwidth=1,
         ),
         hovermode="x unified",
     )
 
-    # Use category axis so weekends/holidays don't create gaps
     for r_idx in (1, 2, 3, 4):
         fig.update_xaxes(
             type="category",
@@ -428,5 +430,97 @@ def generate_recommendation_chart(
         )
         fig.update_yaxes(gridcolor="rgba(255,255,255,0.06)", row=r_idx, col=1)
 
-    fig.write_html(str(chart_path), include_plotlyjs="cdn", full_html=True)
+    status_badge = (
+        f"ACTIVE (Updated through {end_date})"
+        if status == "ACTIVE"
+        else f"EXITED & FROZEN on {exit_date_str}"
+    )
+    ret_color = "#10B981" if ret_pct >= 0 else "#F43F5E"
+    dir_bg = "rgba(16, 185, 129, 0.16)" if direction == "LONG" else "rgba(244, 63, 94, 0.16)"
+    dir_fg = "#34D399" if direction == "LONG" else "#FB7185"
+
+    plot_div = fig.to_html(include_plotlyjs="cdn", full_html=False)
+
+    full_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>{ticker} ({company}) — Turtle Daily Chart</title>
+  <style>
+    body {{
+      margin: 0;
+      padding: 0;
+      background-color: #0E1117;
+      color: #F0F6FC;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }}
+    .chart-header {{
+      background: #161B22;
+      border-bottom: 1px solid #263248;
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }}
+    .header-left {{
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      font-size: 14px;
+    }}
+    .ticker-badge {{
+      font-size: 17px;
+      font-weight: 800;
+      color: #60A5FA;
+      font-family: Consolas, monospace;
+    }}
+    .company-name {{
+      color: #9FB0C7;
+      font-weight: 600;
+    }}
+    .pill {{
+      padding: 3px 9px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+    }}
+    .metrics-strip {{
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+      font-size: 13px;
+      color: #9FB0C7;
+    }}
+    .metrics-strip b {{
+      color: #F0F6FC;
+      font-family: Consolas, monospace;
+    }}
+  </style>
+</head>
+<body>
+  <div class="chart-header">
+    <div class="header-left">
+      <span class="ticker-badge">{ticker}</span>
+      <span class="company-name">({company})</span>
+      <span class="pill" style="background:{dir_bg}; color:{dir_fg};">{direction} • {system}</span>
+      <span class="pill" style="background:rgba(59,130,246,0.18); color:#93C5FD;">Grade {grade} ({score:.1f}/100)</span>
+    </div>
+    <div class="metrics-strip">
+      <span>Rec Date: <b>{rec_date}</b></span>
+      <span>Recommended Price: <b>${rec_price:.2f}</b></span>
+      <span>Latest/Exit Close: <b>${latest_price:.2f}</b></span>
+      <span>Return: <b style="color:{ret_color};">{ret_pct:+.2f}%</b> ({days_held}d)</span>
+      <span>Donchian Exit: <b style="color:#FFA726;">${cur_exit_lvl:.2f}</b></span>
+      <span>Status: <b>{status_badge}</b></span>
+    </div>
+  </div>
+  {plot_div}
+</body>
+</html>
+"""
+    chart_path.write_text(full_html, encoding="utf-8")
     return chart_path

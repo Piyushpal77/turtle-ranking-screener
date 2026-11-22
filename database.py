@@ -454,6 +454,63 @@ def delete_recommendations_on_or_after(start_date: str, db_path: Path = DB_PATH)
         return int(cur.rowcount or 0)
 
 
+def get_date_wise_closing_prices(
+    recommendations: List[Dict[str, Any]],
+    db_path: Path = DB_PATH,
+) -> Tuple[List[str], Dict[str, Dict[str, float]]]:
+    """
+    For all tracked recommendations, fetch date-wise EOD closing prices from the earliest
+    `rec_date` through each recommendation's `latest_date` (or `exit_date` if EXITED).
+    Returns:
+      - sorted list of trading dates (`all_dates`)
+      - mapping `rec_id -> {date_str: close_price}` (only populated from rec_date up to latest_date/exit_date)
+    """
+    if not recommendations:
+        return [], {}
+
+    min_rec_date = min(str(r["rec_date"]) for r in recommendations)
+    tickers = sorted({str(r["ticker"]) for r in recommendations})
+    placeholders = ", ".join(["?"] * len(tickers))
+
+    sql = f"""
+        SELECT ticker, date, close
+        FROM daily_prices
+        WHERE date >= ? AND ticker IN ({placeholders})
+        ORDER BY date ASC;
+    """
+    params: List[Any] = [min_rec_date] + tickers
+    with get_connection(db_path) as conn:
+        cur = conn.execute(sql, params)
+        rows = cur.fetchall()
+
+    ticker_date_close: Dict[str, Dict[str, float]] = {}
+    all_dates_set = set()
+    for row in rows:
+        tkr = str(row["ticker"])
+        dt = str(row["date"])
+        cl = round(float(row["close"]), 2)
+        ticker_date_close.setdefault(tkr, {})[dt] = cl
+        all_dates_set.add(dt)
+
+    all_dates = sorted(all_dates_set)
+    rec_date_closes: Dict[str, Dict[str, float]] = {}
+    for rec in recommendations:
+        rec_id = str(rec["rec_id"])
+        tkr = str(rec["ticker"])
+        start_dt = str(rec["rec_date"])
+        status = str(rec.get("status", "ACTIVE"))
+        end_dt = str(rec.get("exit_date") if status == "EXITED" and rec.get("exit_date") else rec.get("latest_date", start_dt))
+
+        tkr_map = ticker_date_close.get(tkr, {})
+        rec_map: Dict[str, float] = {}
+        for dt in all_dates:
+            if start_dt <= dt <= end_dt and dt in tkr_map:
+                rec_map[dt] = tkr_map[dt]
+        rec_date_closes[rec_id] = rec_map
+
+    return all_dates, rec_date_closes
+
+
 def get_all_recommendations(db_path: Path = DB_PATH) -> List[Dict[str, Any]]:
     """Fetch all recommendations (both ACTIVE and EXITED) ordered by rec_date DESC, direction, score DESC."""
     with get_connection(db_path) as conn:
