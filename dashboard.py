@@ -697,6 +697,29 @@ _DASHBOARD_TEMPLATE = r"""<!DOCTYPE html>
       background: var(--bg-card-hover);
     }
 
+    /* Built-in Spreadsheet Grid Styling */
+    .spreadsheet-grid th {
+      border: 1px solid #2b3952;
+      background: #141c2b;
+      color: #dbeafe;
+      font-size: 11.5px;
+      padding: 10px 14px;
+    }
+
+    .spreadsheet-grid td {
+      border: 1px solid rgba(49, 65, 94, 0.75);
+      padding: 10px 14px;
+      font-size: 13px;
+    }
+
+    .spreadsheet-grid tbody tr:nth-child(even) td {
+      background: rgba(255, 255, 255, 0.015);
+    }
+
+    .spreadsheet-grid tbody tr:hover td {
+      background: rgba(59, 130, 246, 0.12);
+    }
+
     .mono {
       font-family: var(--font-mono);
     }
@@ -991,15 +1014,12 @@ _DASHBOARD_TEMPLATE = r"""<!DOCTYPE html>
 
     <div class="toolbar">
       <div class="control-group">
-        <label for="scanDateSelect">Scan Date:</label>
+        <label for="scanDateSelect">Daily Top 10 Date:</label>
         <select id="scanDateSelect"></select>
       </div>
-      <button class="btn btn-primary" id="btnRunLiveScan" onclick="triggerLiveScan()" title="Sync latest EOD prices & run daily screener (when served via app.py)">
+      <button class="btn btn-primary" id="btnRunLiveScan" onclick="triggerLiveScan()" title="Sync latest EOD prices & run daily screener">
         <span>⟳</span> Sync EOD &amp; Run Scan
       </button>
-      <a class="btn btn-success" href="turtle_recommendations_tracker.xlsx" download title="Download Master Excel Workbook">
-        <span>⬇</span> Excel Tracker (.xlsx)
-      </a>
     </div>
   </header>
 
@@ -1009,16 +1029,20 @@ _DASHBOARD_TEMPLATE = r"""<!DOCTYPE html>
 
     <!-- Navigation Tabs -->
     <nav class="nav-tabs">
-      <button class="tab-btn active" onclick="switchTab('tab-daily', this)">
+      <button class="tab-btn active" onclick="switchTab('tab-sheet-long', this)">
+        <span>📗</span> Long Trades Spreadsheet
+        <span class="tab-count" id="badgeLongSheetCount">0</span>
+      </button>
+      <button class="tab-btn" onclick="switchTab('tab-sheet-short', this)">
+        <span>📕</span> Short Trades Spreadsheet
+        <span class="tab-count" id="badgeShortSheetCount">0</span>
+      </button>
+      <button class="tab-btn" onclick="switchTab('tab-daily', this)">
         <span>🎯</span> Daily Top 10 Breakouts
         <span class="tab-count" id="badgeDailyCount">0</span>
       </button>
-      <button class="tab-btn" onclick="switchTab('tab-rec-sheet', this)">
-        <span>📑</span> Recommendations Spreadsheet
-        <span class="tab-count" id="badgeRecSheetCount">0</span>
-      </button>
       <button class="tab-btn" onclick="switchTab('tab-tracker', this)">
-        <span>📋</span> Master Recommendation Tracker
+        <span>📋</span> All Indicators Log
         <span class="tab-count" id="badgeTrackerCount">0</span>
       </button>
       <button class="tab-btn" onclick="switchTab('tab-terminal', this)">
@@ -1028,16 +1052,58 @@ _DASHBOARD_TEMPLATE = r"""<!DOCTYPE html>
         <span>📊</span> Grade &amp; System Analytics
       </button>
       <button class="tab-btn" onclick="switchTab('tab-universe', this)">
-        <span>🌐</span> Full Universe &amp; Proximity Watchlist
+        <span>🌐</span> Full Universe Watchlist
         <span class="tab-count" id="badgeUniverseCount">0</span>
       </button>
       <button class="tab-btn" onclick="switchTab('tab-methodology', this)">
-        <span>📐</span> 5-Pillar Grading &amp; Turtle Rules
+        <span>📐</span> 5-Pillar Grading Rules
       </button>
     </nav>
 
-    <!-- TAB 1: DAILY TOP 10 BREAKOUTS -->
-    <section id="tab-daily" class="tab-pane active">
+    <!-- TAB 1: LONG TRADES SPREADSHEET (IN-SYSTEM SPREADSHEET) -->
+    <section id="tab-sheet-long" class="tab-pane active">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span class="dir-pill dir-long">▲ LONG TRADES SPREADSHEET</span>
+            <span>Ranked in Decreasing Order of Turtle Score</span>
+          </div>
+          <div style="font-size:12px; color:var(--text-secondary);">
+            Click any <b>Security Name</b> to open its interactive daily chart (with recommended price &amp; vertical dotted recommendation date line)
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table id="tableLongSheet" class="spreadsheet-grid">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 2: SHORT TRADES SPREADSHEET (IN-SYSTEM SPREADSHEET) -->
+    <section id="tab-sheet-short" class="tab-pane">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span class="dir-pill dir-short">▼ SHORT TRADES SPREADSHEET</span>
+            <span>Ranked in Decreasing Order of Turtle Score</span>
+          </div>
+          <div style="font-size:12px; color:var(--text-secondary);">
+            Click any <b>Security Name</b> to open its interactive daily chart (with recommended price &amp; vertical dotted recommendation date line)
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table id="tableShortSheet" class="spreadsheet-grid">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: DAILY TOP 10 BREAKOUTS -->
+    <section id="tab-daily" class="tab-pane">
       <!-- Top 10 Longs Panel -->
       <div class="panel">
         <div class="panel-header">
@@ -1079,35 +1145,7 @@ _DASHBOARD_TEMPLATE = r"""<!DOCTYPE html>
       </div>
     </section>
 
-    <!-- TAB 1B: RECOMMENDATIONS SPREADSHEET (STREAMLINED VIEW) -->
-    <section id="tab-rec-sheet" class="tab-pane">
-      <div class="panel">
-        <div class="panel-header">
-          <div class="panel-title">
-            <span>📑 Recommendations Spreadsheet</span>
-            <span style="color:var(--text-muted); font-size:12px; font-weight:500;">
-              Security Name • Date-Wise Closing Price • Turtle Score • Recommended Price • Donchian Exit • % Return Since Recommendation
-            </span>
-          </div>
-          <div style="display:flex; align-items:center; gap:8px;">
-            <button class="btn" onclick="exportRecommendationsCSV()" title="Export this exact table to CSV">
-              <span>⬇</span> Save Recommendations (.csv)
-            </button>
-            <a class="btn btn-success" href="turtle_recommendations_tracker.xlsx" download title="Download Master Excel Workbook with Recommendations tab">
-              <span>⬇</span> Save Excel Spreadsheet (.xlsx)
-            </a>
-          </div>
-        </div>
-        <div class="table-wrap">
-          <table id="tableRecSheet">
-            <thead></thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- TAB 2: MASTER RECOMMENDATION TRACKER -->
+    <!-- TAB 4: MASTER RECOMMENDATION TRACKER -->
     <section id="tab-tracker" class="tab-pane">
       <div class="panel">
         <div class="panel-header">
@@ -1546,25 +1584,28 @@ _DASHBOARD_TEMPLATE = r"""<!DOCTYPE html>
       `;
 
       document.getElementById("badgeTrackerCount").textContent = k.total_tracked || 0;
-      document.getElementById("badgeRecSheetCount").textContent = k.total_tracked || 0;
       document.getElementById("badgeUniverseCount").textContent = (DATA.universe_snapshot || []).length;
     }
 
-    function renderRecSpreadsheetTab() {
-      const recs = DATA.recommendations || [];
-      const dates = (DATA.date_wise_dates && DATA.date_wise_dates.length)
-        ? DATA.date_wise_dates
-        : (DATA.latest_scan_date ? [DATA.latest_scan_date] : []);
+    function renderSideSpreadsheet(tableSelector, sideRecs, allDates) {
+      // Sort strictly in decreasing order of Turtle Score
+      const sorted = [...sideRecs].sort((a, b) => Number(b.turtle_score || 0) - Number(a.turtle_score || 0));
+
+      // Determine active dates present for this side (or fallback to allDates)
+      let dates = allDates.filter(d => sorted.some(r => r.date_wise_closes && r.date_wise_closes[d] !== undefined));
+      if (!dates.length) {
+        dates = allDates.length ? allDates : (DATA.latest_scan_date ? [DATA.latest_scan_date] : ["Latest"]);
+      }
 
       const dateCount = Math.max(1, dates.length);
-      const thead = document.querySelector("#tableRecSheet thead");
-      const tbody = document.querySelector("#tableRecSheet tbody");
+      const thead = document.querySelector(`${tableSelector} thead`);
+      const tbody = document.querySelector(`${tableSelector} tbody`);
 
-      const dateSubHeaders = dates.map(d => `<th style="text-align:right; border-top:1px solid var(--border);">${d}</th>`).join("");
+      const dateSubHeaders = dates.map(d => `<th style="text-align:right;">${d}</th>`).join("");
       thead.innerHTML = `
         <tr>
-          <th rowspan="2" style="vertical-align:middle;">Security Name</th>
-          <th colspan="${dateCount}" style="text-align:center; border-bottom:1px solid var(--border); color:#60a5fa;">Date-Wise Closing Price</th>
+          <th rowspan="2" style="vertical-align:middle; text-align:left;">Security Name</th>
+          <th colspan="${dateCount}" style="text-align:center; color:#60a5fa;">Date-Wise Closing Price</th>
           <th rowspan="2" style="vertical-align:middle; text-align:right;">Turtle Score</th>
           <th rowspan="2" style="vertical-align:middle; text-align:right;">Recommended Price</th>
           <th rowspan="2" style="vertical-align:middle; text-align:right;">Donchian Exit</th>
@@ -1575,13 +1616,15 @@ _DASHBOARD_TEMPLATE = r"""<!DOCTYPE html>
         </tr>
       `;
 
-      if (!recs.length) {
-        tbody.innerHTML = `<tr><td colspan="${5 + dateCount}" style="text-align:center; padding:22px; color:var(--text-muted);">No recommendations recorded yet.</td></tr>`;
+      if (!sorted.length) {
+        tbody.innerHTML = `<tr><td colspan="${5 + dateCount}" style="text-align:center; padding:24px; color:var(--text-muted);">No recommendations recorded for this side yet.</td></tr>`;
         return;
       }
 
-      tbody.innerHTML = recs.map(r => {
-        const comp = r.company_name && r.company_name !== r.ticker ? `${r.ticker} - ${r.company_name} (${r.direction})` : `${r.ticker} (${r.direction})`;
+      tbody.innerHTML = sorted.map((r) => {
+        const comp = r.company_name && r.company_name !== r.ticker
+          ? `${r.ticker} - ${r.company_name}`
+          : `${r.ticker}`;
         const closesMap = r.date_wise_closes || {};
         const dateCells = dates.map(d => {
           const val = closesMap[d];
@@ -1596,7 +1639,7 @@ _DASHBOARD_TEMPLATE = r"""<!DOCTYPE html>
               </a>
             </td>
             ${dateCells}
-            <td class="mono" style="text-align:right; font-weight:800;">${fmtNum(r.turtle_score)}</td>
+            <td class="mono" style="text-align:right; font-weight:800; color:#60a5fa;">${fmtNum(r.turtle_score)}</td>
             <td class="mono" style="text-align:right;">$${fmtNum(r.rec_price)}</td>
             <td class="mono" style="text-align:right; color:#fbbf24;">$${fmtNum(r.current_exit_level)}</td>
             <td style="text-align:right;">${fmtPctHTML(r.return_pct)}</td>
@@ -1605,47 +1648,20 @@ _DASHBOARD_TEMPLATE = r"""<!DOCTYPE html>
       }).join("");
     }
 
-    function exportRecommendationsCSV() {
+    function renderRecSpreadsheetTab() {
       const recs = DATA.recommendations || [];
       const dates = (DATA.date_wise_dates && DATA.date_wise_dates.length)
         ? DATA.date_wise_dates
         : (DATA.latest_scan_date ? [DATA.latest_scan_date] : []);
 
-      const headerRow = [
-        "Security Name",
-        ...dates.map(d => `Date-Wise Closing Price (${d})`),
-        "Turtle Score",
-        "Recommended Price",
-        "Donchian Exit",
-        "% Return Since Recommendation"
-      ];
+      const longRecs = recs.filter(r => r.direction === "LONG");
+      const shortRecs = recs.filter(r => r.direction === "SHORT");
 
-      const csvRows = [headerRow.map(h => `"${h}"`).join(",")];
-      recs.forEach(r => {
-        const comp = r.company_name && r.company_name !== r.ticker ? `${r.ticker} - ${r.company_name} (${r.direction})` : `${r.ticker} (${r.direction})`;
-        const closesMap = r.date_wise_closes || {};
-        const dateVals = dates.map(d => closesMap[d] !== undefined ? Number(closesMap[d]).toFixed(2) : "");
-        const row = [
-          `"${comp.replace(/"/g, '""')}"`,
-          ...dateVals,
-          Number(r.turtle_score || 0).toFixed(2),
-          Number(r.rec_price || 0).toFixed(2),
-          Number(r.current_exit_level || 0).toFixed(2),
-          Number(r.return_pct || 0).toFixed(2)
-        ];
-        csvRows.push(row.join(","));
-      });
+      document.getElementById("badgeLongSheetCount").textContent = longRecs.length;
+      document.getElementById("badgeShortSheetCount").textContent = shortRecs.length;
 
-      const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `turtle_recommendations_${DATA.latest_scan_date || 'export'}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      showToast("Saved Recommendations spreadsheet CSV.");
+      renderSideSpreadsheet("#tableLongSheet", longRecs, dates);
+      renderSideSpreadsheet("#tableShortSheet", shortRecs, dates);
     }
 
     function renderDailyTables() {

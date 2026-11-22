@@ -9,7 +9,7 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 
-from config import CHARTS_DIR, DB_PATH, TOP_N, TRACKER_XLSX_PATH
+from config import CHARTS_DIR, DB_PATH, TOP_N
 from dashboard import DASHBOARD_HTML_PATH, generate_dashboard_html
 from database import (
     delete_recommendations_on_or_after,
@@ -24,7 +24,6 @@ from database import (
 from indicators import compute_indicators
 from ranker import screen_and_rank_universe
 from tracker import (
-    export_excel_tracker,
     register_new_recommendations,
     save_daily_csv_reports,
     update_active_recommendations,
@@ -294,9 +293,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         logger.warning("No valid trading date found for screening.")
         return 0
 
-    # 5. Export dated CSV snapshots, Master Live-Updating Excel Tracker, and Web UI Dashboard
+    # 5. Export in-system Web UI Dashboard (with built-in Long & Short Spreadsheets) & daily CSV snapshots
     long_csv, short_csv = save_daily_csv_reports(top_longs, top_shorts, effective_date)
-    xlsx_path = export_excel_tracker(top_longs, top_shorts, effective_date, xlsx_path=TRACKER_XLSX_PATH, db_path=DB_PATH)
     dash_path = generate_dashboard_html(indicator_frames=indicator_frames, db_path=DB_PATH, output_path=DASHBOARD_HTML_PATH)
 
     all_tracked = get_all_recommendations(db_path=DB_PATH)
@@ -307,8 +305,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     print(f" [SUMMARY] Scan Date: {effective_date}")
     print(f"   • Today's Qualified Picks : {len(top_longs)} Longs | {len(top_shorts)} Shorts")
     print(f"   • Tracker Database State  : {len(all_tracked)} Total Tracked ({active_count} ACTIVE | {exited_count} EXITED & FROZEN)")
-    print(f"   • Professional Web UI     : {dash_path}")
-    print(f"   • Excel Tracker Workbook  : {xlsx_path}")
+    print(f"   • System UI & Spreadsheets: {dash_path}")
     print(f"   • Interactive HTML Charts : {CHARTS_DIR}")
     print(f"   • Daily CSV Snapshots     : {long_csv.name}, {short_csv.name}")
     print("-" * 118 + "\n")
