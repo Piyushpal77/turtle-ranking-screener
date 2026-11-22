@@ -201,14 +201,17 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     init_db(DB_PATH)
 
-    # 1. Build / load constituent universe
-    if not args.skip_sync or args.refresh_universe:
+    # 1. Load constituent universe from SQLite (only scrape Wikipedia if DB is empty or --refresh-universe is set)
+    ticker_meta = get_ticker_metadata(db_path=DB_PATH)
+    if not ticker_meta or args.refresh_universe:
         constituents = build_universe(force_refresh=args.refresh_universe)
         if constituents:
             upsert_tickers(constituents, db_path=DB_PATH)
-            logger.info("Universe ready: %d unique liquid US equities.", len(constituents))
+            ticker_meta = get_ticker_metadata(db_path=DB_PATH)
+            logger.info("Universe refreshed: %d unique liquid US equities.", len(ticker_meta))
+    else:
+        logger.info("Loaded %d universe tickers directly from SQLite database.", len(ticker_meta))
 
-    ticker_meta = get_ticker_metadata(db_path=DB_PATH)
     tickers = sorted(ticker_meta.keys())
 
     if not tickers:

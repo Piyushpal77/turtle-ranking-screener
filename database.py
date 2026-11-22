@@ -281,9 +281,9 @@ def sync_market_data(
 ) -> Dict[str, Any]:
     """
     Synchronize daily OHLCV prices into SQLite.
-    - Downloads full 2y history for new tickers (or when force_full_refresh=True).
-    - Downloads only incremental EOD prices (with 7-day overlap) for existing tickers.
-    - Automatically detects split/dividend adjustments on overlap bars and re-fetches full history for affected tickers.
+    - When SQLite already has historical data, never re-downloads 2-year data; instead checks if
+      new EOD dates exist after the latest stored SQLite date and downloads ONLY new EOD bars.
+    - Full 2y download runs only on an empty database (first-time setup) or when --force-full-sync is passed.
     """
     init_db(db_path)
 
@@ -300,83 +300,74 @@ def sync_market_data(
             for row in cur.fetchall()
         }
 
-    cold_tickers: List[str] = []
-    incremental_tickers: List[str] = []
-
-    for tkr in tickers:
-        if force_full_refresh or tkr not in existing_stats:
-            cold_tickers.append(tkr)
-        else:
-            count, _ = existing_stats[tkr]
-            if count < MIN_TRADING_DAYS_REQUIRED:
-                cold_tickers.append(tkr)
-            else:
-                incremental_tickers.append(tkr)
-
     full_rows_written = 0
     inc_rows_written = 0
-    split_refreshed_tickers: List[str] = []
 
-    if cold_tickers:
-        logger.info("Downloading full (%s) history for %d tickers...", INITIAL_LOOKBACK_PERIOD, len(cold_tickers))
-        cold_frames = _download_batch(cold_tickers, period=INITIAL_LOOKBACK_PERIOD)
+    # Only download full 2-year history if database is completely empty or force_full_refresh=True
+    if force_full_refresh or not existing_stats:
+        logger.info("Initial database setup: downloading %s history for %d tickers...", INITIAL_LOOKBACK_PERIOD, len(tickers))
+        cold_frames = _download_batch(tickers, period=INITIAL_LOOKBACK_PERIOD)
         full_rows_written += _save_ticker_frames(cold_frames, replace_full_history=True, db_path=db_path)
+        return {
+            "cold_tickers": len(tickers),
+            "incremental_tickers": 0,
+            "split_refreshed_tickers": 0,
+            "full_rows_written": full_rows_written,
+            "inc_rows_written": 0,
+        }
 
-    if incremental_tickers:
-        min_max_date = min(existing_stats[tkr][1] for tkr in incremental_tickers)
-        overlap_start = (
-            datetime.strptime(min_max_date, "%Y-%m-%d") - timedelta(days=INCREMENTAL_OVERLAP_DAYS)
-        ).strftime("%Y-%m-%d")
+    # Database already has historical data -> search for and download ONLY new EOD prices after db_max_date
+    db_max_date = max(max_dt for _, max_dt in existing_stats.values())
+    next_day = (datetime.strptime(db_max_date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+    today_str = datetime.now().strftime("%Y-%m-%d")
 
-        logger.info(
-            "Performing incremental EOD sync from %s for %d tickers...",
-            overlap_start,
-            len(incremental_tickers),
-        )
-        inc_frames = _download_batch(incremental_tickers, start=overlap_start)
+    if next_day > today_str:
+        logger.info("SQLite database is already up to date through EOD %s (no new EOD download required).", db_max_date)
+        return {
+            "cold_tickers": 0,
+            "incremental_tickers": 0,
+            "split_refreshed_tickers": 0,
+            "full_rows_written": 0,
+            "inc_rows_written": 0,
+        }
 
-        # Load stored overlap closes to detect overnight splits or dividends
-        with get_connection(db_path) as conn:
-            cur = conn.execute(
-                "SELECT ticker, date, close FROM daily_prices WHERE date >= ?;",
-                (overlap_start,),
-            )
-            stored_overlap: Dict[Tuple[str, str], float] = {
-                (row["ticker"], row["date"]): float(row["close"]) for row in cur.fetchall()
-            }
+    # Quick 1-ticker probe (AAPL) to check if a new EOD trading session has closed on Yahoo Finance after db_max_date
+    logger.info("Checking for new EOD closing prices after %s...", db_max_date)
+    probe_frames = _download_batch(["AAPL"], start=next_day, batch_size=1)
+    probe_df = probe_frames.get("AAPL")
+    if probe_df is None or probe_df.empty or str(probe_df.index[-1]) <= db_max_date:
+        logger.info("No new EOD trading session found after %s. Using existing SQLite database.", db_max_date)
+        return {
+            "cold_tickers": 0,
+            "incremental_tickers": 0,
+            "split_refreshed_tickers": 0,
+            "full_rows_written": 0,
+            "inc_rows_written": 0,
+        }
 
-        clean_inc_frames: Dict[str, pd.DataFrame] = {}
-        for tkr, df in inc_frames.items():
-            needs_resync = False
-            for dt_str, row in df.iterrows():
-                key = (tkr, str(dt_str))
-                if key in stored_overlap:
-                    old_close = stored_overlap[key]
-                    new_close = float(row["close"])
-                    if old_close > 0 and abs(new_close - old_close) / old_close > SPLIT_TOLERANCE_PCT:
-                        needs_resync = True
-                        break
-            if needs_resync:
-                split_refreshed_tickers.append(tkr)
-            else:
-                clean_inc_frames[tkr] = df
+    # New EOD session(s) exist after db_max_date -> download ONLY the new EOD dates (start=next_day)
+    active_db_tickers = [tkr for tkr in tickers if tkr in existing_stats]
+    logger.info(
+        "New EOD data available (%s -> %s). Downloading EOD prices only for %d tickers...",
+        next_day,
+        str(probe_df.index[-1]),
+        len(active_db_tickers),
+    )
+    inc_frames = _download_batch(active_db_tickers, start=next_day)
+    # Filter strictly to dates > db_max_date
+    new_eod_frames: Dict[str, pd.DataFrame] = {}
+    for tkr, df in inc_frames.items():
+        sub = df[df.index > db_max_date]
+        if not sub.empty:
+            new_eod_frames[tkr] = sub
 
-        inc_rows_written += _save_ticker_frames(clean_inc_frames, replace_full_history=False, db_path=db_path)
-
-        if split_refreshed_tickers:
-            logger.info(
-                "Detected split/dividend adjustment on %d tickers (%s); refreshing full history...",
-                len(split_refreshed_tickers),
-                ", ".join(split_refreshed_tickers[:10]),
-            )
-            resync_frames = _download_batch(split_refreshed_tickers, period=INITIAL_LOOKBACK_PERIOD)
-            full_rows_written += _save_ticker_frames(resync_frames, replace_full_history=True, db_path=db_path)
+    inc_rows_written += _save_ticker_frames(new_eod_frames, replace_full_history=False, db_path=db_path)
 
     return {
-        "cold_tickers": len(cold_tickers),
-        "incremental_tickers": len(incremental_tickers),
-        "split_refreshed_tickers": len(split_refreshed_tickers),
-        "full_rows_written": full_rows_written,
+        "cold_tickers": 0,
+        "incremental_tickers": len(new_eod_frames),
+        "split_refreshed_tickers": 0,
+        "full_rows_written": 0,
         "inc_rows_written": inc_rows_written,
     }
 
