@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+.pytest_cache/
+
+# Local SQLite database & cache
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+data/universe_cache.json
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+~$*.xlsx

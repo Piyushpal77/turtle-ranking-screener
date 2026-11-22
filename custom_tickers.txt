@@ -1,0 +1,4 @@
+# Optional Custom Tickers (one ticker per line, lines starting with # are ignored)
+# Example:
+# SPY
+# QQQ
