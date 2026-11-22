@@ -319,10 +319,18 @@ def sync_market_data(
     # Database already has historical data -> search for and download ONLY new EOD prices after db_max_date
     db_max_date = max(max_dt for _, max_dt in existing_stats.values())
     next_day = (datetime.strptime(db_max_date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
-    today_str = datetime.now().strftime("%Y-%m-%d")
 
-    if next_day > today_str:
-        logger.info("SQLite database is already up to date through EOD %s (no new EOD download required).", db_max_date)
+    # Compute the latest US business day (Mon-Fri); if today is Saturday (5) or Sunday (6), step back to Friday
+    now_local = datetime.now()
+    if now_local.weekday() == 5:
+        latest_us_bday = (now_local - timedelta(days=1)).strftime("%Y-%m-%d")
+    elif now_local.weekday() == 6:
+        latest_us_bday = (now_local - timedelta(days=2)).strftime("%Y-%m-%d")
+    else:
+        latest_us_bday = now_local.strftime("%Y-%m-%d")
+
+    if db_max_date >= latest_us_bday:
+        logger.info("SQLite database is already up to date through latest EOD %s (0 downloads required).", db_max_date)
         return {
             "cold_tickers": 0,
             "incremental_tickers": 0,
