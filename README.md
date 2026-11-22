@@ -1,6 +1,6 @@
 # Turtle Trend Following US Stock Ranking Screener
 
-A modular Python stock screener and tracking engine inspired by the **Turtle Trading System**. Scans the **S&P 500** and **Nasdaq 100** (~515+ liquid US equities) daily for fresh **Day-1 Donchian Channel breakouts**, grades every candidate on a **0–100 Multi-Factor Turtle Score (`A+` to `C`)**, stores daily OHLCV bars in a **local SQLite database (`data/screener.db`)** for incremental EOD updates, and maintains a **live-updating Excel workbook (`output/turtle_recommendations_tracker.xlsx`)** where every recommended stock is **hyperlinked to its interactive daily HTML candlestick chart**.
+A modular Python stock screener and in-system tracking dashboard inspired by the **Turtle Trading System**. Scans the **S&P 500** and **Nasdaq 100** (~515+ liquid US equities) daily for fresh **Day-1 Donchian Channel breakouts**, grades every candidate on a **0–100 Multi-Factor Turtle Score (`A+` to `C`)**, stores daily OHLCV bars in a **local SQLite database (`data/screener.db`)** for fast incremental EOD updates, and generates a **self-contained Web UI (`output/dashboard.html`)** featuring built-in **Long Trades Spreadsheet** and **Short Trades Spreadsheet** tabs where every recommended stock is **hyperlinked to its interactive daily HTML candlestick chart**.
 
 ---
 
@@ -18,10 +18,10 @@ A modular Python stock screener and tracking engine inspired by the **Turtle Tra
   5. **Institutional Volume & ADX Conviction (15%):** Relative Volume (**RVOL**) surge + Wilder's **ADX(14)** and $\pm(\text{+DI} - \text{-DI})$ directional spread.
 * **SQLite Incremental EOD Database (`data/screener.db`):**
   * Downloads 2 years of adjusted daily OHLCV bars on first run, then downloads only incremental EOD bars each day with a 7-day overlap check that automatically detects overnight stock splits/dividends and refreshes affected tickers.
-* **Live-Updating Excel Tracker & Hyperlinked Interactive HTML Charts:**
-  * `output/turtle_recommendations_tracker.xlsx` contains `Tracker_Log`, `Latest_Top10`, and `Grade_Performance` tabs.
-  * Clicking any recommended ticker in Excel opens its interactive Plotly daily chart (`output/charts/<TICKER>_<REC_DATE>_<DIRECTION>.html`) featuring candlesticks, Donchian channels, Turtle Exit channel trail, Hull MA (20), SMA (200), a **vertical dotted line on the recommendation date**, a **horizontal line at the recommended price**, Volume, MACD, and RSI/Stochastic sub-charts.
-  * **Automatic Turtle Exit Freeze:** Each daily run updates `ACTIVE` recommendations until `Close` breaches the System-matched Donchian Exit (`10-day` opposite channel for System 1; `20-day` opposite channel for System 2), at which point the recommendation's return and chart freeze as `EXITED`.
+* **Built-In Web UI Spreadsheets & Hyperlinked Interactive HTML Charts (`output/dashboard.html`):**
+  * Dedicated **`Long Trades Spreadsheet`** and **`Short Trades Spreadsheet`** tabs built directly into the UI, ranked in decreasing order of **Turtle Score** with headings: `Security Name`, `Date-Wise Closing Price`, `Turtle Score`, `Recommended Price`, `Donchian Exit`, and `% Return Since Recommendation`.
+  * Clicking any `Security Name` opens its interactive Plotly daily chart (`output/charts/<TICKER>_<REC_DATE>_<DIRECTION>.html`) featuring candlesticks, Donchian channels, Donchian Exit channel trail, Hull MA (20), SMA (200), a **vertical dotted line on the recommendation date**, a **horizontal line at the recommended price**, Volume, MACD, and RSI/Stochastic sub-charts.
+  * **Automatic Donchian Exit Freeze:** Each daily run updates `ACTIVE` recommendations until `Close` breaches the System-matched Donchian Exit (`10-day` opposite channel for System 1; `20-day` opposite channel for System 2), at which point the recommendation's return and chart freeze as `EXITED`.
 
 ---
 
@@ -39,16 +39,10 @@ pip install -r requirements.txt
 python screener.py
 ```
 
-### 3. Backfill / Replay Recent Trading Days
+### 3. Open the Web UI Dashboard & Spreadsheets
 
-To immediately populate the tracker workbook and generate charts across the last 15 trading sessions:
-
-```bash
-python screener.py --backfill-days 15
-```
-
-### 4. Run Offline from Local SQLite Database
+Open `output/dashboard.html` directly in your browser, or start the live local UI server:
 
 ```bash
-python screener.py --skip-sync
+python app.py
 ```
