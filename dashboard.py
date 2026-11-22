@@ -1029,17 +1029,17 @@ _DASHBOARD_TEMPLATE = r"""<!DOCTYPE html>
 
     <!-- Navigation Tabs -->
     <nav class="nav-tabs">
-      <button class="tab-btn active" onclick="switchTab('tab-sheet-long', this)">
+      <button class="tab-btn active" onclick="switchTab('tab-daily', this)">
+        <span>🎯</span> Daily Top 10 Breakouts
+        <span class="tab-count" id="badgeDailyCount">0</span>
+      </button>
+      <button class="tab-btn" onclick="switchTab('tab-sheet-long', this)">
         <span>📗</span> Long Trades Spreadsheet
         <span class="tab-count" id="badgeLongSheetCount">0</span>
       </button>
       <button class="tab-btn" onclick="switchTab('tab-sheet-short', this)">
         <span>📕</span> Short Trades Spreadsheet
         <span class="tab-count" id="badgeShortSheetCount">0</span>
-      </button>
-      <button class="tab-btn" onclick="switchTab('tab-daily', this)">
-        <span>🎯</span> Daily Top 10 Breakouts
-        <span class="tab-count" id="badgeDailyCount">0</span>
       </button>
       <button class="tab-btn" onclick="switchTab('tab-tracker', this)">
         <span>📋</span> All Indicators Log
@@ -1061,7 +1061,7 @@ _DASHBOARD_TEMPLATE = r"""<!DOCTYPE html>
     </nav>
 
     <!-- TAB 1: LONG TRADES SPREADSHEET (IN-SYSTEM SPREADSHEET) -->
-    <section id="tab-sheet-long" class="tab-pane active">
+    <section id="tab-sheet-long" class="tab-pane">
       <div class="panel">
         <div class="panel-header">
           <div class="panel-title">
@@ -1103,7 +1103,7 @@ _DASHBOARD_TEMPLATE = r"""<!DOCTYPE html>
     </section>
 
     <!-- TAB 3: DAILY TOP 10 BREAKOUTS -->
-    <section id="tab-daily" class="tab-pane">
+    <section id="tab-daily" class="tab-pane active">
       <!-- Top 10 Longs Panel -->
       <div class="panel">
         <div class="panel-header">
